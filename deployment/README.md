@@ -23,6 +23,9 @@ subfolders hold the rest of the deployment stacks:
   present). If that state file is missing, Kafka Lambdas stay outside any VPC.
   L1/L2 Lambdas keep the historical default (no VPC). You can always override
   network settings via `-var` flags; see "Customizing the VPC" below.
+- The Kafka-on-EKS VPC includes Gateway endpoints for both S3 and S3 Express,
+  so VPC-attached Kafka/Lambda traffic to those services stays on private VPC
+  routes (no NAT egress for those requests).
 
 ## Build the deployment artifacts
 

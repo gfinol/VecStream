@@ -60,3 +60,16 @@ resource "aws_vpc_endpoint" "s3" {
     Name = "${var.name}-s3-gateway-endpoint"
   })
 }
+
+resource "aws_vpc_endpoint" "s3express" {
+  vpc_id       = module.vpc.vpc_id
+  service_name = "com.amazonaws.${var.region}.s3express"
+  route_table_ids = concat(
+    module.vpc.private_route_table_ids,
+    module.vpc.public_route_table_ids
+  )
+
+  tags = merge(local.tags, {
+    Name = "${var.name}-s3express-gateway-endpoint"
+  })
+}

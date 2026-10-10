@@ -116,6 +116,16 @@ kubectl get kafkanodepool -n kafka
 
 Expected pod status: all pods Running.
 
+## S3 and S3 Express connectivity
+
+This stack creates Gateway VPC endpoints for:
+- `com.amazonaws.<region>.s3`
+- `com.amazonaws.<region>.s3express`
+
+Kafka brokers (tiered storage) and any Lambdas attached to this VPC can access
+S3 and S3 Express privately through the VPC route tables, which avoids NAT
+egress charges for those paths.
+
 ## Testing
 
 ### Create a Kafka CLI Pod
