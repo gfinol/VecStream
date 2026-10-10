@@ -145,7 +145,7 @@ variable "async_index_tiered_storage_bucket_name" {
 }
 
 variable "auto_use_kafka_on_eks_network" {
-  description = "When true, auto-attach Lambdas to the Kafka-on-EKS VPC/subnets when its local terraform state is available."
+  description = "When true, auto-attach Kafka search Lambdas to Kafka-on-EKS VPC/subnets when its local terraform state is available."
   type        = bool
   default     = true
 }
@@ -157,7 +157,7 @@ variable "kafka_on_eks_tfstate_path" {
 }
 
 variable "vpc_id" {
-  description = "Explicit VPC ID for Lambda functions. Overrides Kafka-on-EKS auto-discovery when set."
+  description = "Explicit VPC ID for Kafka (and async index) Lambda VPC config. Overrides Kafka-on-EKS auto-discovery when set."
   type        = string
   default     = ""
 }
