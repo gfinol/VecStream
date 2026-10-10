@@ -17,32 +17,50 @@ resource "aws_s3_object" "lambda_code_zip" {
 }
 
 # ---------------------------------------------------------------------------
-# VPC resolution (only runs in VPC mode, i.e. when vpc_id is set)
+# VPC resolution
 # ---------------------------------------------------------------------------
-# Default is no VPC. Setting `vpc_id` (and optionally `subnet_ids`,
-# `security_group_ids`, route-table overrides) opts the deployment into VPC
-# mode: data lookups run, the Gateway endpoints are created, and every lambda
-# gets a `vpc_config` block. When `vpc_id == ""` none of this happens.
+# By default, only Kafka search Lambdas auto-attach to the Kafka-on-EKS VPC and
+# private subnets when that stack's local terraform state is available.
+# Explicit `vpc_id` and `subnet_ids` values still take precedence.
 
 locals {
-  vpc_mode = var.vpc_id != ""
+  kafka_on_eks_state_path      = abspath("${path.module}/${var.kafka_on_eks_tfstate_path}")
+  kafka_on_eks_state_available = var.auto_use_kafka_on_eks_network && fileexists(local.kafka_on_eks_state_path)
 
-  vpc_id = local.vpc_mode ? (var.vpc_id != "" ? var.vpc_id : data.aws_vpc.default[0].id) : null
-  subnet_ids = local.vpc_mode ? (
-    length(var.subnet_ids) > 0 ? var.subnet_ids : data.aws_subnets.default[0].ids
+  auto_vpc_id = local.kafka_on_eks_state_available ? try(data.terraform_remote_state.kafka_on_eks[0].outputs.vpc_id, "") : ""
+  auto_subnet_ids = local.kafka_on_eks_state_available ? try(
+    data.terraform_remote_state.kafka_on_eks[0].outputs.private_subnet_ids,
+    []
   ) : []
-  security_group_ids = local.vpc_mode ? (
+
+  explicit_vpc_mode = var.vpc_id != ""
+  kafka_vpc_mode    = local.explicit_vpc_mode || local.auto_vpc_id != ""
+  effective_vpc_id  = local.explicit_vpc_mode ? var.vpc_id : local.auto_vpc_id
+
+  vpc_id = local.kafka_vpc_mode ? local.effective_vpc_id : null
+  subnet_ids = local.kafka_vpc_mode ? (
+    length(var.subnet_ids) > 0 ? var.subnet_ids : (
+      local.explicit_vpc_mode ? data.aws_subnets.default[0].ids : (
+        length(local.auto_subnet_ids) > 0 ? local.auto_subnet_ids : data.aws_subnets.default[0].ids
+      )
+    )
+  ) : []
+  security_group_ids = local.kafka_vpc_mode ? (
     length(var.security_group_ids) > 0 ? var.security_group_ids : [aws_security_group.lambda[0].id]
   ) : []
 }
 
-data "aws_vpc" "default" {
-  count   = local.vpc_mode && var.vpc_id == "" ? 1 : 0
-  default = true
+data "terraform_remote_state" "kafka_on_eks" {
+  count   = local.kafka_on_eks_state_available ? 1 : 0
+  backend = "local"
+
+  config = {
+    path = local.kafka_on_eks_state_path
+  }
 }
 
 data "aws_subnets" "default" {
-  count = local.vpc_mode && length(var.subnet_ids) == 0 ? 1 : 0
+  count = local.kafka_vpc_mode && length(var.subnet_ids) == 0 && (local.explicit_vpc_mode || length(local.auto_subnet_ids) == 0) ? 1 : 0
 
   filter {
     name   = "vpc-id"
@@ -54,7 +72,7 @@ data "aws_subnets" "default" {
 # Created only in VPC mode. Used as the default when `security_group_ids` is
 # not overridden, replacing the VPC's default SG which may lack egress rules.
 resource "aws_security_group" "lambda" {
-  count       = local.vpc_mode ? 1 : 0
+  count       = local.kafka_vpc_mode ? 1 : 0
   name        = "vecstream-lambda-sg"
   description = "VecStream Lambda outbound egress"
   vpc_id      = local.vpc_id
@@ -126,9 +144,9 @@ resource "aws_iam_role_policy" "lambda_custom_policy" {
 # Lambda functions: L1, L2, Kafka
 # ---------------------------------------------------------------------------
 # L1 and L2 share the same handler (vecstream.map_lambda.event_handler); the
-# LAMBDA_TIER env var is set for ops visibility. When `vpc_id` is set the
-# lambdas are attached to the resolved VPC; otherwise they run with no VPC
-# config (the AWS default). Kafka lambdas follow the same pattern.
+# LAMBDA_TIER env var is set for ops visibility. They run with no VPC config by
+# default. Kafka lambdas auto-attach to Kafka-on-EKS networking when
+# discovered, or to explicit `vpc_id`/`subnet_ids` when provided.
 
 resource "aws_lambda_function" "l1_quicksvdb" {
   count = var.lambda_count_l1
@@ -219,7 +237,7 @@ resource "aws_lambda_function" "kafka_quicksvdb" {
   architectures = [var.lambda_architecture]
 
   dynamic "vpc_config" {
-    for_each = local.vpc_mode ? [1] : []
+    for_each = local.kafka_vpc_mode ? [1] : []
     content {
       subnet_ids         = local.subnet_ids
       security_group_ids = local.security_group_ids
@@ -277,7 +295,7 @@ resource "aws_lambda_function" "async_index_creation" {
   architectures = [var.lambda_architecture]
 
   dynamic "vpc_config" {
-    for_each = local.vpc_mode ? [1] : []
+    for_each = local.explicit_vpc_mode ? [1] : []
     content {
       subnet_ids         = local.subnet_ids
       security_group_ids = local.security_group_ids
@@ -385,7 +403,7 @@ output "async_index_lambda_function_name" {
 }
 
 output "vpc_mode" {
-  value = local.vpc_mode
+  value = local.kafka_vpc_mode
 }
 
 output "resolved_vpc_id" {

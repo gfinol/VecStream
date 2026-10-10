@@ -83,7 +83,7 @@ terraform apply \
 
 The two `async_index_*` variables wire the indexer: the bootstrap servers enable Kafka offset commits, the bucket name enables the S3 ObjectCreated notification that triggers indexing. 
 
-The default deployment creates 500 L1 cache, 500 L2 cache and 25 Kafka search Lambdas (1769 MB memory, 60 s timeout, x86_64) plus one async index Lambda (4096 MB, 300 s). L1 and L2 share the `vecstream.map_lambda.event_handler` handler; the Kafka Lambdas run `vecstream.kafka_lambda.event_handler`. Lambdas run outside any VPC by default; set `vpc_id` to opt into VPC mode with S3 and S3 Express Gateway endpoints. Scale the fleet with `lambda_count_l1`, `lambda_count_l2` and `lambda_count_kafka`.
+The default deployment creates 500 L1 cache, 500 L2 cache and 25 Kafka search Lambdas (1769 MB memory, 60 s timeout, x86_64) plus one async index Lambda (4096 MB, 300 s). L1 and L2 share the `vecstream.map_lambda.event_handler` handler; the Kafka Lambdas run `vecstream.kafka_lambda.event_handler`. By default, when `deployment/kafka_on_eks/terraform/terraform.tfstate` exists, Kafka Lambdas auto-attach to the same Kafka-on-EKS VPC/private subnets; the other Lambdas keep the previous default (no VPC). Set `vpc_id` to force explicit VPC config. Scale the fleet with `lambda_count_l1`, `lambda_count_l2` and `lambda_count_kafka`.
 
 Wire the function URLs into the client:
 
@@ -186,5 +186,3 @@ cd deployment/benchmark_clients/terraform && terraform workspace select <suite> 
 ```
 
 `terraform destroy` does not remove the published Lambda layer; delete it manually with `aws lambda delete-layer-version` if you want a clean account.
-
-

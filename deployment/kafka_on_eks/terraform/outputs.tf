@@ -27,6 +27,16 @@ output "deployment_id" {
   value       = var.deployment_id
 }
 
+output "vpc_id" {
+  description = "VPC ID used by the Kafka-on-EKS stack"
+  value       = module.vpc.vpc_id
+}
+
+output "private_subnet_ids" {
+  description = "Private subnet IDs used by the Kafka-on-EKS stack"
+  value       = module.vpc.private_subnets
+}
+
 ################################################################################
 # Grafana
 ################################################################################
