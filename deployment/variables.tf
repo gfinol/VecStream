@@ -144,20 +144,32 @@ variable "async_index_tiered_storage_bucket_name" {
   default     = ""
 }
 
+variable "auto_use_kafka_on_eks_network" {
+  description = "When true, auto-attach Lambdas to the Kafka-on-EKS VPC/subnets when its local terraform state is available."
+  type        = bool
+  default     = true
+}
+
+variable "kafka_on_eks_tfstate_path" {
+  description = "Path (relative to deployment/) to the Kafka-on-EKS terraform state file used for auto network wiring."
+  type        = string
+  default     = "kafka_on_eks/terraform/terraform.tfstate"
+}
+
 variable "vpc_id" {
-  description = "VPC ID for the Lambda functions. Leave empty to use the account's default VPC."
+  description = "Explicit VPC ID for Lambda functions. Overrides Kafka-on-EKS auto-discovery when set."
   type        = string
   default     = ""
 }
 
 variable "subnet_ids" {
-  description = "Subnet IDs for the Lambda VPC config. Leave empty to use all subnets of the resolved VPC."
+  description = "Subnet IDs for Lambda VPC config. Leave empty to auto-use Kafka-on-EKS private subnets (when discovered) or all subnets in the resolved VPC."
   type        = list(string)
   default     = []
 }
 
 variable "security_group_ids" {
-  description = "Security group IDs for the Lambda VPC config. Leave empty to use the VPC's default security group."
+  description = "Security group IDs for Lambda VPC config. Leave empty to create and use a dedicated Lambda SG with all egress."
   type        = list(string)
   default     = []
 }

@@ -18,10 +18,10 @@ subfolders hold the rest of the deployment stacks:
   (`aws sts get-caller-identity` should succeed)
 - Terraform >= 1.5
 - `uv` (for the layer build)
-- A VPC in `var.aws_region` is **only required if you set `vpc_id`**. The
-  default deployment runs the lambdas outside any VPC. To opt in, supply a VPC
-  (and optionally subnets, security groups, route tables) via `-var` flags;
-  see "Customizing the VPC" below.
+- By default, deployment auto-attaches Lambdas to the Kafka-on-EKS VPC/subnets
+  by reading `kafka_on_eks/terraform/terraform.tfstate` (when present). If that
+  state file is missing, Lambdas stay outside any VPC. You can always override
+  network settings via `-var` flags; see "Customizing the VPC" below.
 
 ## Build the deployment artifacts
 
@@ -69,10 +69,12 @@ terraform plan -out=tfplan
 terraform apply tfplan
 ```
 
-By default this creates 500 L1, 500 L2, and 25 Kafka lambdas outside any VPC
-and skips the Gateway endpoints. Approximate apply time: a few minutes
-(Lambda creation is parallel; in VPC mode the first apply also creates ENIs
-in the VPC, which AWS rate-limits per account).
+By default this creates 500 L1, 500 L2, and 25 Kafka lambdas. When
+`kafka_on_eks/terraform/terraform.tfstate` exists, Lambdas are attached to that
+VPC/private subnets; otherwise they run outside any VPC and skip Gateway
+endpoints. Approximate apply time: a few minutes (Lambda creation is parallel;
+in VPC mode the first apply also creates ENIs in the VPC, which AWS
+rate-limits per account).
 
 ## Wire the URLs into the client
 
@@ -118,10 +120,9 @@ All three should return `{"message": "Lambda warmup complete."}` (L1/L2) or
 
 ## Customizing the VPC
 
-By default the lambdas run outside any VPC and no Gateway endpoints are
-created. Setting `vpc_id` opts the deployment into VPC mode: the lambdas are
-attached to the resolved VPC, and the S3 + S3 Express Gateway endpoints are
-created.
+By default, if the Kafka-on-EKS terraform state file is available, Lambdas are
+attached to that stack's VPC/private subnets and the S3 + S3 Express Gateway
+endpoints are created. Setting `vpc_id` explicitly overrides auto-discovery.
 
 ```bash
 terraform apply \
@@ -132,10 +133,11 @@ terraform apply \
   -var 's3express_gateway_route_table_ids=["rtb-aaa"]'
 ```
 
-If you supply `vpc_id` but leave `subnet_ids` / `security_group_ids` empty,
-the deployment falls back to the account's default VPC, all of its subnets,
-and its `default` SG (only valid when `vpc_id` is itself the default VPC).
-If you supply custom subnets they must all be in the same VPC as `vpc_id`.
+If `subnet_ids` is omitted, deployment prefers Kafka-on-EKS private subnets
+when auto-discovered, otherwise all subnets in the resolved `vpc_id`. If
+`security_group_ids` is omitted, deployment creates a dedicated
+`vecstream-lambda-sg` and uses it. Custom subnets must all be in the same VPC
+as `vpc_id`.
 
 ## Customizing lambda counts
 

@@ -17,32 +17,48 @@ resource "aws_s3_object" "lambda_code_zip" {
 }
 
 # ---------------------------------------------------------------------------
-# VPC resolution (only runs in VPC mode, i.e. when vpc_id is set)
+# VPC resolution
 # ---------------------------------------------------------------------------
-# Default is no VPC. Setting `vpc_id` (and optionally `subnet_ids`,
-# `security_group_ids`, route-table overrides) opts the deployment into VPC
-# mode: data lookups run, the Gateway endpoints are created, and every lambda
-# gets a `vpc_config` block. When `vpc_id == ""` none of this happens.
+# By default, Lambdas auto-attach to the Kafka-on-EKS VPC and private subnets
+# when that stack's local terraform state is available. Explicit `vpc_id` and
+# `subnet_ids` values still take precedence. If neither explicit values nor
+# discoverable Kafka state are present, deployment remains outside any VPC.
 
 locals {
-  vpc_mode = var.vpc_id != ""
+  kafka_on_eks_state_path      = abspath("${path.module}/${var.kafka_on_eks_tfstate_path}")
+  kafka_on_eks_state_available = var.auto_use_kafka_on_eks_network && fileexists(local.kafka_on_eks_state_path)
 
-  vpc_id = local.vpc_mode ? (var.vpc_id != "" ? var.vpc_id : data.aws_vpc.default[0].id) : null
+  auto_vpc_id = local.kafka_on_eks_state_available ? try(data.terraform_remote_state.kafka_on_eks[0].outputs.vpc_id, "") : ""
+  auto_subnet_ids = local.kafka_on_eks_state_available ? try(
+    data.terraform_remote_state.kafka_on_eks[0].outputs.private_subnet_ids,
+    []
+  ) : []
+
+  effective_vpc_id = var.vpc_id != "" ? var.vpc_id : local.auto_vpc_id
+  vpc_mode         = local.effective_vpc_id != ""
+
+  vpc_id = local.vpc_mode ? local.effective_vpc_id : null
   subnet_ids = local.vpc_mode ? (
-    length(var.subnet_ids) > 0 ? var.subnet_ids : data.aws_subnets.default[0].ids
+    length(var.subnet_ids) > 0 ? var.subnet_ids : (
+      length(local.auto_subnet_ids) > 0 ? local.auto_subnet_ids : data.aws_subnets.default[0].ids
+    )
   ) : []
   security_group_ids = local.vpc_mode ? (
     length(var.security_group_ids) > 0 ? var.security_group_ids : [aws_security_group.lambda[0].id]
   ) : []
 }
 
-data "aws_vpc" "default" {
-  count   = local.vpc_mode && var.vpc_id == "" ? 1 : 0
-  default = true
+data "terraform_remote_state" "kafka_on_eks" {
+  count   = local.kafka_on_eks_state_available ? 1 : 0
+  backend = "local"
+
+  config = {
+    path = local.kafka_on_eks_state_path
+  }
 }
 
 data "aws_subnets" "default" {
-  count = local.vpc_mode && length(var.subnet_ids) == 0 ? 1 : 0
+  count = local.vpc_mode && length(var.subnet_ids) == 0 && length(local.auto_subnet_ids) == 0 ? 1 : 0
 
   filter {
     name   = "vpc-id"
